@@ -31,11 +31,12 @@ class S3Broker(Broker):
 
         self._credentials = None
         self._bucket_name = None
+        self._region_name = None
 
     def delete_files(self, volume_path, files):
         """See :meth:`storage.brokers.broker.Broker.delete_files`"""
 
-        with S3Client(self._credentials) as client:
+        with S3Client(self._credentials, self._region_name) as client:
             for scale_file in files:
                 s3_object = client.get_object(self._bucket_name, scale_file.file_path)
 
@@ -48,7 +49,7 @@ class S3Broker(Broker):
     def download_files(self, volume_path, file_downloads):
         """See :meth:`storage.brokers.broker.Broker.download_files`"""
 
-        with S3Client(self._credentials) as client:
+        with S3Client(self._credentials, self._region_name) as client:
             for file_download in file_downloads:
                 s3_object = client.get_object(self._bucket_name, file_download.file.file_path)
 
@@ -58,6 +59,7 @@ class S3Broker(Broker):
         """See :meth:`storage.brokers.broker.Broker.load_configuration`"""
 
         self._bucket_name = config['bucket_name']
+        self._region_name = getattr(config, 'region_name', None)
 
         # TODO Change credentials to use an encrypted store key reference
         if 'credentials' in config:
@@ -67,7 +69,7 @@ class S3Broker(Broker):
     def move_files(self, volume_path, file_moves):
         """See :meth:`storage.brokers.broker.Broker.move_files`"""
 
-        with S3Client(self._credentials) as client:
+        with S3Client(self._credentials, self._region_name) as client:
             for file_move in file_moves:
                 s3_object_src = client.get_object(self._bucket_name, file_move.file.file_path)
                 s3_object_dest = client.get_object(self._bucket_name, file_move.new_path, False)
@@ -81,7 +83,7 @@ class S3Broker(Broker):
     def upload_files(self, volume_path, file_uploads):
         """See :meth:`storage.brokers.broker.Broker.upload_files`"""
 
-        with S3Client(self._credentials) as client:
+        with S3Client(self._credentials, self._region_name) as client:
             for file_upload in file_uploads:
                 s3_object = client.get_object(self._bucket_name, file_upload.file.file_path, False)
 
@@ -107,7 +109,7 @@ class S3Broker(Broker):
             credentials = S3Credentials(credentials_dict['access_key_id'], credentials_dict['secret_access_key'])
 
         # Check whether the bucket can actually be accessed
-        with S3Client(credentials) as client:
+        with S3Client(credentials, self._region_name) as client:
             try:
                 client.get_bucket(config['bucket_name'])
             except ClientError:
@@ -240,15 +242,18 @@ class S3Broker(Broker):
 class S3Client(object):
     """Manages automatically creating and destroying clients to the S3 service."""
 
-    def __init__(self, credentials=None):
+    def __init__(self, credentials=None, region_name=None):
         """Constructor
 
         :param credentials: Authentication values needed to access S3 storage. If no credentials are passed, then IAM
             role-based access is assumed.
         :type credentials: :class:`storage.brokers.s3_broker.S3Credentials`
+        :param region_name: The AWS region the S3 bucket resides in.
+        :type region_name: string
         """
 
         self.credentials = credentials
+        self.region_name = region_name
         self._client = None
 
     def __enter__(self):
@@ -261,6 +266,8 @@ class S3Client(object):
         if self.credentials:
             session_args['aws_access_key_id'] = self.credentials.access_key_id
             session_args['aws_secret_access_key'] = self.credentials.secret_access_key
+        if self.region_name:
+            session_args['region_name'] = self.region_name
         self._session = Session(**session_args)
 
         s3_args = {
